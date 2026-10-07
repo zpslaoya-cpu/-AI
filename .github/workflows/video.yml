@@ -1,4 +1,4 @@
-name: AI Video Test
+name: Generate Real AI Video
 
 on:
   workflow_dispatch:
@@ -9,7 +9,7 @@ on:
 jobs:
   video:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
@@ -20,50 +20,110 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install tools
+      - name: Install
         run: |
           python -m pip install --upgrade pip
-          pip install gradio_client requests
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
+          pip install gradio_client
 
-      - name: Test Hugging Face video backend
-        run: |
-          python - <<'PY'
-          from gradio_client import Client
-
-          spaces = [
-              "ZeroCollabs/LTX-2.3-turbo",
-              "Lightricks/ltx-video-distilled"
-          ]
-
-          for space in spaces:
-              print("=" * 60)
-              print("TESTING:", space)
-
-              try:
-                  client = Client(space)
-                  print("CONNECTED:", space)
-                  print(client.view_api())
-                  print("SUCCESS:", space)
-                  break
-
-              except Exception as e:
-                  print("FAILED:", space)
-                  print(repr(e))
-          else:
-              raise RuntimeError("No video Space could be reached")
-          PY
-
-      - name: Create probe result
-        if: always()
+      - name: Generate real MP4
         run: |
           mkdir -p output
-          echo "AI video backend probe completed" > output/result.txt
 
-      - name: Upload result
-        if: always()
+          python - <<'PY'
+          import os
+          import shutil
+          from gradio_client import Client
+
+          print("Connecting to LTX video generator...")
+
+          client = Client("Lightricks/ltx-video-distilled")
+
+          prompt = """
+          Cinematic anime, Chinese post-apocalyptic manhua style.
+          Vertical composition.
+          A ruined Chinese town covered in thick cold gray fog.
+          In the middle of the abandoned street stands a tiny convenience
+          store called Wanxing Convenience Store, glowing with warm amber
+          light through its windows.
+
+          A 23-year-old Chinese woman named Lin Wan stands at the entrance.
+          Black high ponytail, dark gray cropped windbreaker,
+          black cargo pants, worn tactical boots, wrist guard.
+          Calm and determined expression.
+
+          Behind her stands humanoid service robot 734,
+          silver-gray metal body, horizontal glowing blue eyes,
+          number 734 clearly marked on its chest.
+
+          Torn signs move gently in the wind.
+          Gray fog drifts slowly through the ruined street.
+          Warm store light contrasts against the cold apocalypse.
+          Slow cinematic camera push toward the convenience store.
+          Stable characters, coherent anatomy, atmospheric lighting,
+          detailed anime movie quality.
+          """
+
+          negative = """
+          worst quality, low quality, blurry, jittery,
+          inconsistent motion, distorted face, deformed body,
+          extra fingers, extra limbs, duplicate people,
+          text artifacts, watermark, unstable characters
+          """
+
+          print("Submitting real video generation job...")
+
+          result = client.predict(
+              prompt=prompt,
+              negative_prompt=negative,
+              input_image_filepath=None,
+              input_video_filepath=None,
+              height_ui=704,
+              width_ui=512,
+              mode="text-to-video",
+              duration_ui=2,
+              ui_frames_to_use=9,
+              seed_ui=734,
+              randomize_seed=False,
+              ui_guidance_scale=1,
+              improve_texture_flag=True,
+              api_name="/video_to_video"
+          )
+
+          print("GENERATION RESULT:")
+          print(result)
+
+          video = result[0]
+
+          if isinstance(video, dict):
+              if "video" in video:
+                  video = video["video"]
+
+              if isinstance(video, dict):
+                  video = video.get("path")
+
+          if not video:
+              raise RuntimeError("Generator returned no video path")
+
+          print("Generated file:", video)
+
+          destination = "output/末日积分小卖部_镜头001.mp4"
+
+          shutil.copyfile(video, destination)
+
+          print("MP4 SAVED:", destination)
+          print("VIDEO GENERATION SUCCESS")
+          PY
+
+      - name: Verify MP4
+        run: |
+          echo "Generated files:"
+          ls -lah output
+          test -s "output/末日积分小卖部_镜头001.mp4"
+
+      - name: Upload MP4
         uses: actions/upload-artifact@v4
         with:
-          name: ai-video-test
-          path: output/
+          name: 末日积分小卖部-镜头001
+          path: output/*.mp4
+          if-no-files-found: error
+          retention-days: 7
